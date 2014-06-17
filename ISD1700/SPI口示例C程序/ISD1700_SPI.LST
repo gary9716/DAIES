@@ -1,0 +1,604 @@
+C51 COMPILER V7.06   ISD1700_SPI                                                           08/15/2010 12:57:08 PAGE 1   
+
+
+C51 COMPILER V7.06, COMPILATION OF MODULE ISD1700_SPI
+OBJECT MODULE PLACED IN ISD1700_SPI.OBJ
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE ISD1700_SPI.c BROWSE DEBUG OBJECTEXTEND
+
+stmt level    source
+
+   1          /************************************************************************
+   2          * ISD1700 89C51 单片机C 语言示例程序*
+   3          * 功能： 1700 芯片SPI 工作模式下放音、录音、擦除等功能的编程示例 *
+   4          *************************************************************************/
+   5          //***********************头文件***************************//
+   6          #include "REG51.h"
+   7          //************************宏定义***************************//
+   8          #define uchar unsigned char
+   9          #define uint unsigned int
+  10          //**************ISD1700 状态寄存器及各个标志位定义*****************//
+  11          unsigned char bdata SR0_L; // SR0 寄存器
+  12          unsigned char bdata SR0_H;
+  13          unsigned char bdata SR1; // SR1 寄存器
+  14          unsigned char APCL=0,APCH=0; // APC 寄存器
+  15          unsigned char PlayAddL=0,PlayAddH=0; // 放音指针低位，高位
+  16          unsigned char RecAddL=0,RecAddH=0; // 录音指针低位，高位
+  17          sbit CMD=SR0_L^0; // SPI 指令错误标志位
+  18          sbit FULL=SR0_L^1; // 芯片存储空间满标志
+  19          sbit PU=SR0_L^2; // 上电标志位
+  20          sbit EOM=SR0_L^3; // EOM 标志位
+  21          sbit INTT=SR0_L^4; // 操作完成标志位
+  22          sbit RDY=SR1^0; // 准备接收指令标志位
+  23          sbit ERASE=SR1^1; // 擦除标志位
+  24          sbit PLAY=SR1^2; // 播放标志位
+  25          sbit REC=SR1^1; // 录音标志位
+  26          /**************************************************
+  27          * ISD1700 SPI 指令函数声明 *
+  28          **************************************************/
+  29          unsigned char ISD_SendData(unsigned char dat);
+  30          unsigned char ISD_Devid (void);
+  31          void ISD_PU(void);
+  32          void ISD_STOP(void);
+  33          void ISD_Reset(void);
+  34          void ISD_Clr_Int(void);
+  35          void ISD_Rd_Status(void);
+  36          void ISD_Rd_Playptr(void);
+  37          void ISD_PD(void);
+  38          void ISD_Rd_Recptr(void);
+  39          void ISD_Play(void);
+  40          void ISD_Rec(void);
+  41          void ISD_Erase(void) ;
+  42          void ISD_G_Erase(void);
+  43          void ISD_Rd_APC(void);
+  44          void ISD_WR_APC2(unsigned char apcdatl,apcdath);
+  45          void ISD_WR_NVCFG(unsigned char apcdatl,apcdath);
+  46          void ISD_LD_NVCFG(void);
+  47          void ISD_FWD(void);
+  48          void ISD_CHK_MEM(void);
+  49          void ISD_EXTCLK(void);
+  50          void ISD_SET_PLAY (unsigned char Saddl,Saddh,Eaddl,Eaddh);
+  51          void ISD_SET_Rec (unsigned char Saddl,Saddh,Eaddl,Eaddh);
+  52          void ISD_SET_Erase(unsigned char Saddl,Saddh,Eaddl,Eaddh);
+  53          //**********************端口定义**************************//
+  54          sbit SS=P1^0;
+  55          sbit SCK=P1^1;
+C51 COMPILER V7.06   ISD1700_SPI                                                           08/15/2010 12:57:08 PAGE 2   
+
+  56          sbit MOSI=P1^2;
+  57          sbit MISO=P1^3;
+  58          sbit LED= P0^7;
+  59          sbit Key_AN= P3^2;
+  60          sbit Key_STOP= P3^3;
+  61          sbit Switch_PR=P1^4; //PLAY=0;REC=1;
+  62          //********************标志位定义***************************//
+  63          uchar bdata flag;
+  64          sbit PR_flag=flag^1; // 放音/录音标志位：0=放音，1=录音。
+  65          sbit Erase_flag=flag^4;
+  66          sbit Stop_flag=flag^7;
+  67          //********************其它函数声明**********************//
+  68          void Cpu_Init(void); // 系统初始化
+  69          void ISD_Init(void); // ISD1700 初始化
+  70          void ISDWORK (void);
+  71          void delay(unsigned int t); // ms 级延迟
+  72          /*************************** 主函数 *****************************/
+  73          void main(void)
+  74          { uchar i;
+  75   1      Cpu_Init(); // CPU 及系统变量初始化
+  76   1      delay(1);
+  77   1      ISD_Init(); // ISD 初始化
+  78   1      while(1)
+  79   1      {if (Key_AN==0)
+  80   2      {delay(10);
+  81   3      if (Key_AN==0)
+  82   3      {
+  83   4      if (Switch_PR==1)
+  84   4      PR_flag=1;
+  85   4      else PR_flag=0;
+  86   4      ISDWORK();
+  87   4      }
+  88   3      }
+  89   2      if (Key_STOP==0)
+  90   2      { delay(20);
+  91   3      if (Key_STOP==0)
+  92   3      { for (i=100;i>0;i--)
+  93   4      {if (Key_STOP==1)
+  94   5      {flag=0x80;
+  95   6      ISDWORK();
+  96   6      ISD_Init();
+  97   6      break;
+  98   6      }
+  99   5      delay(30);
+ 100   5      }
+ 101   4      if (flag==0x80)
+ 102   4      {flag=00;
+ 103   5      continue;}
+ 104   4      Erase_flag=1;
+ 105   4      ISDWORK();
+ 106   4      }
+ 107   3      }
+ 108   2      }
+ 109   1      }
+ 110          /******************************************************************************
+ 111          *****
+ 112          函数原型: void IniCpuIO()
+ 113          功能： CPU 及系统变量初始化
+ 114          *******************************************************************************
+ 115          ****/
+ 116          void Cpu_Init(void)
+ 117          {
+C51 COMPILER V7.06   ISD1700_SPI                                                           08/15/2010 12:57:08 PAGE 3   
+
+ 118   1      P0=P1=P2=P3=0xff;
+ 119   1      TMOD=0x01; // 定时器初始化
+ 120   1      EA=0; // 关闭中断
+ 121   1      flag=0; // 标志位归0
+ 122   1      LED=1;
+ 123   1      }
+ 124          /******************************************************************************
+ 125          *****
+ 126          函数原型: void ISD_Init(void);
+ 127          功能： 系统初始化。
+ 128          *******************************************************************************
+ 129          ****/
+ 130          void ISD_Init(void)
+ 131          { uchar i=2;
+ 132   1      SS=1;
+ 133   1      SCK=1;
+ 134   1      MOSI=0;
+ 135   1      do
+ 136   1      {
+ 137   2      ISD_PU(); // 上电
+ 138   2      delay(50);
+ 139   2      ISD_Rd_Status(); // 读取状态
+ 140   2      }while(CMD||(!PU)); // if(CMD_Err==1)||(PU!=1))则再次发送上电指令
+ 141   1      ISD_WR_APC2(0x40,0x04); // 将0x0440（芯片出厂默认值，可根据需要更改数值）写入APC 寄存器
+ 142   1      do
+ 143   1      {ISD_Rd_Status(); // 等待RDY 位置1
+ 144   2      }while(RDY==0);
+ 145   1      do{LED=0;
+ 146   2      delay(300);
+ 147   2      LED=1;
+ 148   2      delay(300);
+ 149   2      i--;}while(i>0);
+ 150   1      }
+ 151          /**************************************************************************
+ 152          * 函数原型: void ISDWORK (void)
+ 153          * 功 能: 对ISD1700 进行的相关操作
+ 154          **************************************************************************/
+ 155          void ISDWORK (void)
+ 156          {uchar i;
+ 157   1      switch (flag)
+ 158   1      {case 0x00: //放音
+ 159   2      do{ISD_Rd_Status();
+ 160   3      }while(RDY==0);
+ 161   2      delay(10);
+ 162   2      ISD_Play();
+ 163   2      delay(2);
+ 164   2      LED=0;
+ 165   2      do{ISD_Rd_Status();
+ 166   3      if (Key_STOP==0)
+ 167   3      {delay(20);
+ 168   4      if (Key_STOP==0)
+ 169   4      {ISD_Clr_Int();
+ 170   5      ISD_STOP();
+ 171   5      return;
+ 172   5      }
+ 173   4      }
+ 174   3      }while(PLAY==1);
+ 175   2      LED=1;
+ 176   2      ISD_Clr_Int();
+ 177   2      do{ISD_Rd_Status();
+ 178   3      }while(RDY==0);
+ 179   2      delay(10);
+C51 COMPILER V7.06   ISD1700_SPI                                                           08/15/2010 12:57:08 PAGE 4   
+
+ 180   2      ISD_FWD();
+ 181   2      do{ISD_Rd_Status();
+ 182   3      }while(RDY==0);
+ 183   2      break;
+ 184   2      case 0x02:
+ 185   2      ISD_Clr_Int();
+ 186   2      do{ISD_Rd_Status();
+ 187   3      }while(RDY==0);
+ 188   2      LED=0;
+ 189   2      ISD_Rec();
+ 190   2      do{ISD_Rd_Status();
+ 191   3      if(FULL==1)
+ 192   3      {for (i=3;i>0;i--)
+ 193   4      {LED=0;
+ 194   5      delay(300);
+ 195   5      LED=1;
+ 196   5      delay(200);}
+ 197   4      }
+ 198   3      }while(Key_AN==0);
+ 199   2      ISD_Clr_Int();
+ 200   2      ISD_STOP();
+ 201   2      LED=1;
+ 202   2      break;
+ 203   2      case 0x10:
+ 204   2      do{
+ 205   3      ISD_Rd_Status();
+ 206   3      }while(RDY==0);
+ 207   2      delay(2);
+ 208   2      ISD_G_Erase();
+ 209   2      do{
+ 210   3      ISD_Rd_Status();
+ 211   3      }while(RDY==0);
+ 212   2      for (i=3;i>0;i--)
+ 213   2      {LED=0;
+ 214   3      delay(300);
+ 215   3      LED=1;
+ 216   3      delay(200);}
+ 217   2      break;
+ 218   2      case 0x80:
+ 219   2      ISD_Clr_Int();
+ 220   2      ISD_STOP();
+ 221   2      ISD_Reset();
+ 222   2      ISD_PD();
+ 223   2      break;
+ 224   2      }
+ 225   1      }
+ 226          /**************************************************************************
+ 227          * 函数原型: unsigned char ISD_SendData(unsigned char dat);
+ 228          * 功 能: 向CPU 发送&读回数据
+ 229          **************************************************************************/
+ 230          unsigned char ISD_SendData(unsigned char dat) // 保证外部SS=1
+ 231          {
+ 232   1      unsigned char i,j,BUF_ISD=dat;
+ 233   1      SCK=1; // 初始条件
+ 234   1      SS=0; // 使能ISD1700 的SPI
+ 235   1      for(j=4;j>0;j--) // 延迟
+ 236   1      {;}
+ 237   1      for(i=0;i<8;i++) // 发送&接收8 位数据
+ 238   1      {
+ 239   2      SCK=0;
+ 240   2      for(j=2;j>0;j--) // 延迟
+ 241   2      {;}
+C51 COMPILER V7.06   ISD1700_SPI                                                           08/15/2010 12:57:08 PAGE 5   
+
+ 242   2      if(BUF_ISD&0x01) // 将BUF_ISD 中的最低位数据发送到MOSI 端口
+ 243   2      MOSI=1;
+ 244   2      else
+ 245   2      MOSI=0;
+ 246   2      BUF_ISD>>=1; // BUF_ISD 右移一位
+ 247   2      if(MISO) // 逐个接收MISO 端口的数据。将数据存在BUF_ISD的最高位
+ 248   2      BUF_ISD|=0x80;
+ 249   2      SCK=1;
+ 250   2      for(j=6;j>0;j--) // 延迟
+ 251   2      {;}
+ 252   2      }
+ 253   1      MOSI=0;
+ 254   1      return(BUF_ISD); //返回接收到的数据
+ 255   1      }
+ 256          /**************************************************************************
+ 257          * 函数原型: void ISD_PU(void); 发送指令后需要延迟50ms
+ 258          * 功 能: 上电
+ 259          **************************************************************************/
+ 260          void ISD_PU(void)
+ 261          {
+ 262   1      ISD_SendData(0x01); // 发送PU 命令
+ 263   1      ISD_SendData(0x00);
+ 264   1      SS=1;
+ 265   1      }
+ 266          /**************************************************************************
+ 267          * 函数原型: void ISD_STOP(void);
+ 268          * 功 能: 停止当前操作
+ 269          **************************************************************************/
+ 270          void ISD_STOP(void)
+ 271          {
+ 272   1      ISD_SendData(0x02); // 发送STOP 命令
+ 273   1      ISD_SendData(0x00);
+ 274   1      SS=1;
+ 275   1      }
+ 276          /**************************************************************************
+ 277          * 函数原型: void ISD_Reset(void); 发送指令后需要延迟50ms
+ 278          * 功 能: ISD1700 复位
+ 279          **************************************************************************/
+ 280          void ISD_Reset(void)
+ 281          {
+ 282   1      ISD_SendData(0x03); // 发送RESET 命令
+ 283   1      ISD_SendData(0x00);
+ 284   1      SS=1;
+ 285   1      }
+ 286          /**************************************************************************
+ 287          * 函数原型: void ISD_Clr_Int()(void);
+ 288          * 功 能: 清除中断标志
+ 289          **************************************************************************/
+ 290          void ISD_Clr_Int(void)
+ 291          {
+ 292   1      ISD_SendData(0x04);
+ 293   1      ISD_SendData(0x00);
+ 294   1      SS=1;
+ 295   1      }
+ 296          /**************************************************************************
+ 297          * 函数原型: void ISD_Rd_Status(void);
+ 298          * 功 能: 读取状态寄存器内容
+ 299          **************************************************************************/
+ 300          void ISD_Rd_Status(void)
+ 301          { unsigned char i ;
+ 302   1      ISD_SendData(0x05); // 发送
+ 303   1      ISD_SendData(0x00);
+C51 COMPILER V7.06   ISD1700_SPI                                                           08/15/2010 12:57:08 PAGE 6   
+
+ 304   1      ISD_SendData(0x00);
+ 305   1      SS=1;
+ 306   1      for(i=2;i>0;i--) //延迟
+ 307   1      {;}
+ 308   1      SR0_L=ISD_SendData(0x05); // 从MISO 读出状态
+ 309   1      SR0_H=ISD_SendData(0x00);
+ 310   1      SR1=ISD_SendData(0x00);
+ 311   1      SS=1;
+ 312   1      }
+ 313          /**************************************************************************
+ 314          * 函数原型: void ISD_Rd_PlayPtr(void);
+ 315          * 功 能: 读取放音指针
+ 316          **************************************************************************/
+ 317          void ISD_Rd_Playptr(void)
+ 318          { unsigned char i;
+ 319   1      ISD_SendData(0x06); // 发送
+ 320   1      ISD_SendData(0x00);
+ 321   1      ISD_SendData(0x00);
+ 322   1      ISD_SendData(0x00);
+ 323   1      SS=1;
+ 324   1      for(i=2;i>0;i--) //延迟
+ 325   1      {;}
+ 326   1      SR0_L=ISD_SendData(0x06); // 从MISO 读出状态
+ 327   1      SR0_H=ISD_SendData(0x00);
+ 328   1      PlayAddL=ISD_SendData(0x00); // 读取放音指针低8 位
+ 329   1      PlayAddH=ISD_SendData(0x00); // 读取放音指针高8 位
+ 330   1      SS=1;
+ 331   1      }
+ 332          /**************************************************************************
+ 333          * 函数原型: void ISD_PD(void); 发送指令后需要延迟50ms
+ 334          * 功 能: 下电
+ 335          **************************************************************************/
+ 336          void ISD_PD(void)
+ 337          {
+ 338   1      ISD_SendData(0x07); // 发送PD 命令
+ 339   1      ISD_SendData(0x00);
+ 340   1      SS=1;
+ 341   1      }
+ 342          /**************************************************************************
+ 343          * 函数原型: void ISD_Rd_RecPtr(void);
+ 344          * 功 能: 读取录音指针
+ 345          **************************************************************************/
+ 346          void ISD_Rd_Recptr(void)
+ 347          { unsigned char i;
+ 348   1      ISD_SendData(0x08); // 发送
+ 349   1      ISD_SendData(0x00);
+ 350   1      ISD_SendData(0x00);
+ 351   1      ISD_SendData(0x00);
+ 352   1      SS=1;
+ 353   1      for(i=2;i>0;i--) //延迟
+ 354   1      {;}
+ 355   1      SR0_L=ISD_SendData(0x08); // 从MISO 读出状态
+ 356   1      SR0_H=ISD_SendData(0x00);
+ 357   1      RecAddL=ISD_SendData(0x00); // 读取录音指针低8 位
+ 358   1      RecAddH=ISD_SendData(0x00); // 读取录音指针高8 位
+ 359   1      SS=1;
+ 360   1      }
+ 361          /**************************************************************************
+ 362          * 函数原型: unsigned char ISD_Devid (void);
+ 363          * 功 能: 读取APC 寄存器内容
+ 364          **************************************************************************/
+ 365          unsigned char ISD_Devid (void)
+C51 COMPILER V7.06   ISD1700_SPI                                                           08/15/2010 12:57:08 PAGE 7   
+
+ 366          { unsigned char DeviceNO,i;
+ 367   1      ISD_SendData(0x09);
+ 368   1      ISD_SendData(0x00);
+ 369   1      ISD_SendData(0x00);
+ 370   1      SS=1;
+ 371   1      for(i=2;i>0;i--) //延迟
+ 372   1      {;}
+ 373   1      ISD_SendData(0x09);
+ 374   1      ISD_SendData(0x00);
+ 375   1      DeviceNO=ISD_SendData(0x00);
+ 376   1      SS=1;
+ 377   1      return DeviceNO;
+ 378   1      }
+ 379          /**************************************************************************
+ 380          * 函数原型: void ISD_Play()(void);
+ 381          * 功 能: 放音
+ 382          **************************************************************************/
+ 383          void ISD_Play(void)
+ 384          {
+ 385   1      ISD_SendData(0x40); // 发送放音命令
+ 386   1      ISD_SendData(0x00);
+ 387   1      SS=1;
+ 388   1      }
+ 389          /**************************************************************************
+ 390          * 函数原型: void ISD_Rec()(void);
+ 391          * 功 能: 录音
+ 392          **************************************************************************/
+ 393          void ISD_Rec(void)
+ 394          {
+ 395   1      ISD_SendData(0x41); // 发送录音命令
+ 396   1      ISD_SendData(0x00);
+ 397   1      SS=1;
+ 398   1      }
+ 399          /**************************************************************************
+ 400          * 函数原型: void ISD_Erase(void);
+ 401          * 功 能: 擦除
+ 402          **************************************************************************/
+ 403          void ISD_Erase(void)
+ 404          {
+ 405   1      ISD_SendData(0x42); // 发送擦除指令
+ 406   1      ISD_SendData(0x00);
+ 407   1      SS=1;
+ 408   1      }
+ 409          /**************************************************************************
+ 410          * 函数原型: void ISD_G_Erase(void);
+ 411          * 功 能: 全体擦除
+ 412          **************************************************************************/
+ 413          void ISD_G_Erase(void)
+ 414          {
+ 415   1      ISD_SendData(0x43); // 发送全体擦除命令
+ 416   1      ISD_SendData(0x00);
+ 417   1      SS=1;
+ 418   1      }
+ 419          /**************************************************************************
+ 420          * 函数原型: void ISD_RD_APC(void);
+ 421          * 功 能: 读取APC 寄存器内容
+ 422          **************************************************************************/
+ 423          void ISD_Rd_APC(void)
+ 424          { unsigned char i;
+ 425   1      ISD_SendData(0x44);
+ 426   1      ISD_SendData(0x00);
+ 427   1      ISD_SendData(0x00);
+C51 COMPILER V7.06   ISD1700_SPI                                                           08/15/2010 12:57:08 PAGE 8   
+
+ 428   1      ISD_SendData(0x00);
+ 429   1      SS=1;
+ 430   1      for(i=2;i>0;i--) //延迟
+ 431   1      {;}
+ 432   1      SR0_L=ISD_SendData(0x44);
+ 433   1      SR0_H=ISD_SendData(0x00);
+ 434   1      APCL=ISD_SendData(0x00);
+ 435   1      APCH=ISD_SendData(0x00);
+ 436   1      SS=1;
+ 437   1      }
+ 438          /**************************************************************************
+ 439          * 函数原型: void ISD_WR_APC2(unsigned char apcdatl,apcdath);
+ 440          * 功 能: 设置APC2
+ 441          **************************************************************************/
+ 442          void ISD_WR_APC2(unsigned char apcdatl,apcdath)
+ 443          {
+ 444   1      ISD_SendData(0x65);
+ 445   1      ISD_SendData(apcdatl); //发送低8 位数据
+ 446   1      ISD_SendData(apcdath); //发送高8 位数据
+ 447   1      SS=1;
+ 448   1      }
+ 449          /**************************************************************************
+ 450          * 函数原型: void ISD_WR_NVCFG(unsigned char apcdatl,apcdath);
+ 451          * 功 能: 将APC 数据写入NVCFG 寄存器中
+ 452          **************************************************************************/
+ 453          void ISD_WR_NVCFG(unsigned char apcdatl,apcdath)
+ 454          {
+ 455   1      ISD_SendData(0x46);
+ 456   1      ISD_SendData(apcdatl); //发送低8 位数据
+ 457   1      ISD_SendData(apcdath); //发送高8 位数据
+ 458   1      SS=1;
+ 459   1      }
+ 460          /**************************************************************************
+ 461          * 函数原型: void ISD_LD_NVCFG(void);
+ 462          * 功 能: 将NVCFG 数据载入APC 寄存器中
+ 463          **************************************************************************/
+ 464          void ISD_LD_NVCFG(void)
+ 465          {
+ 466   1      ISD_SendData(0x47);
+ 467   1      ISD_SendData(0x00);
+ 468   1      SS=1;
+ 469   1      }
+ 470          /**************************************************************************
+ 471          * 函数原型: void ISD_FWD(void);
+ 472          * 功 能: 放音指针下跳一段，指向下一段语音的起始地址
+ 473          **************************************************************************/
+ 474          void ISD_FWD(void)
+ 475          {
+ 476   1      ISD_SendData(0x48);
+ 477   1      ISD_SendData(0x00);
+ 478   1      SS=1;
+ 479   1      }
+ 480          /**************************************************************************
+ 481          * 函数原型: void ISD_CHK_MEM()(void);
+ 482          * 功 能: 空间检查
+ 483          **************************************************************************/
+ 484          void ISD_CHK_MEM(void)
+ 485          {
+ 486   1      ISD_SendData(0x49);
+ 487   1      ISD_SendData(0x00);
+ 488   1      SS=1;
+ 489   1      }
+C51 COMPILER V7.06   ISD1700_SPI                                                           08/15/2010 12:57:08 PAGE 9   
+
+ 490          /**************************************************************************
+ 491          * 函数原型: void ISD_EXTCLK(void);
+ 492          * 功 能: 启用/关闭 外部时钟模式
+ 493          **************************************************************************/
+ 494          void ISD_EXTCLK(void)
+ 495          {
+ 496   1      ISD_SendData(0x4a);
+ 497   1      ISD_SendData(0x00);
+ 498   1      SS=1;
+ 499   1      }
+ 500          /**************************************************************************
+ 501          * 函数原型: void ISD_SET_PLAY( unsigned char Saddl，Saddh，Eaddl，Eaddh)
+ 502          * 功 能: 定点播放
+ 503          *
+ 504          **************************************************************************/
+ 505          void ISD_SET_PLAY( unsigned char Saddl,Saddh,Eaddl,Eaddh)
+ 506          {
+ 507   1      ISD_SendData(0x80);
+ 508   1      ISD_SendData(0x00);
+ 509   1      ISD_SendData(Saddl); // 开始地址低8 位
+ 510   1      ISD_SendData(Saddh); // 开始地址高8 位
+ 511   1      ISD_SendData(Eaddl); // 结束地址低8 位
+ 512   1      ISD_SendData(Eaddh); // 结束地址高8 位
+ 513   1      ISD_SendData(0x00);
+ 514   1      SS=1;
+ 515   1      }
+ 516          /**************************************************************************
+ 517          * 函数原型: void ISD_SET_Rec( unsigned char Saddl，Saddh，Eaddl，Eaddh)
+ 518          * 功 能: 定点录音
+ 519          *
+ 520          **************************************************************************/
+ 521          void ISD_SET_Rec( unsigned char Saddl,Saddh,Eaddl,Eaddh)
+ 522          {
+ 523   1      ISD_SendData(0x81);
+ 524   1      ISD_SendData(0x00);
+ 525   1      ISD_SendData(Saddl); // 开始地址低8 位
+ 526   1      ISD_SendData(Saddh); // 开始地址高8 位
+ 527   1      ISD_SendData(Eaddl); // 结束地址低8 位
+ 528   1      ISD_SendData(Eaddh); // 结束地址高8 位
+ 529   1      ISD_SendData(0x00);
+ 530   1      SS=1;
+ 531   1      }
+ 532          /**************************************************************************
+ 533          * 函数原型: void ISD_SET_Erase( unsigned char Saddl，Saddh，Eaddl，Eaddh)
+ 534          * 功 能: 定点录音
+ 535          *
+ 536          **************************************************************************/
+ 537          void ISD_SET_Erase( unsigned char Saddl,Saddh,Eaddl,Eaddh)
+ 538          {
+ 539   1      ISD_SendData(0x82);
+ 540   1      ISD_SendData(0x00);
+ 541   1      ISD_SendData(Saddl); // 开始地址低8 位
+ 542   1      ISD_SendData(Saddh); // 开始地址高8 位
+ 543   1      ISD_SendData(Eaddl); // 结束地址低8 位
+ 544   1      ISD_SendData(Eaddh); // 结束地址高8 位
+ 545   1      ISD_SendData(0x00);
+ 546   1      SS=1;
+ 547   1      }
+ 548          /****************************************************
+ 549          * 函数原型: void delay(unsigned int t)
+ 550          * 功 能: ms 级延迟
+ 551          ****************************************************/
+C51 COMPILER V7.06   ISD1700_SPI                                                           08/15/2010 12:57:08 PAGE 10  
+
+ 552          void delay(unsigned int t) //ms 级延迟,12M 晶振
+ 553          {
+ 554   1      for(;t>0;t--)
+ 555   1      {TH0=0xfc; //TMOD: 计数器0, 工作方式 1, (65536-X)*1μ s=1ms,X=64536=FC18
+ 556   2      TL0=0x18;
+ 557   2      TR0=1;
+ 558   2      while(TF0!=1)
+ 559   2      {;}
+ 560   2      TF0=0;
+ 561   2      TR0=0;
+ 562   2      }
+ 563   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    936    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =     10      24
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)
